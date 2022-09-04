@@ -1,7 +1,8 @@
-#!/usr/bin/zsh
+#!/usr/bin/bash
 prefix="https://www.youtube.com/watch_videos?video_ids="
 format=""
 input=""
+temp=
 count=0
 
 if [ -p /dev/stdin ]; then
@@ -14,7 +15,7 @@ while
 [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; do
 
 	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]]; then
-		remove=`echo "$2" | sed 's/^\s*$/0/' | bc`
+		remove=$(echo "$2" | sed 's/^\s*$/0/' | bc)
 		shift 2
 	fi
 
@@ -29,8 +30,8 @@ while
 	fi
 
 	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; then
-		log=`realpath $2`
-		[[ -d $log ]] && { log=$log/`basename $0`.txt }
+		log=$(realpath "$2")
+		[[ -d $log ]] && { log=$log/$(basename "$0").txt; }
 		shift 2
 	fi
 
@@ -41,48 +42,53 @@ if [[ $read ]]; then
 		echo -n "> " >&2
 		input_term+="\n$item"
 	done
-	input_term="${${input_term//\\n/ }:1}"
+	temp=${input_term//\\n/ }
+	input_term="${temp:1}"
 fi
 
-input=($input $input_term $@)
-[[ -v log ]] && { input=($input $(cat $log)) }
-for argu in $input; do
-	fargu=($(echo "${argu//\\}"))
-	for entry in $fargu; do
-		format=$(echo "$format`[[ $format == "" ]] && echo -n || echo ,`"$(echo "$entry" | sed -E "s/^.+(v=|.be\/|video_ids=)([^&]*).*/\2/g"))
+input=(${input[@]} $input_term $@)
+[[ -v log ]] && { input=("${input[@]}" $(cat "$log")); }
+for argu in "${input[@]}"; do
+	fargu=($(echo -e "${argu//\\}"))
+	for entry in "${fargu[@]}"; do
+		format=$(echo "$format$([[ $format == "" ]] && echo -n || echo ,)""$(echo "$entry" | sed -E "s/^.+(v=|.be\/|video_ids=)([^&]*).*/\2/g")")
 	done
 	
 done
 
-local splitstr=(`IFS=',' read -reA <<< $format`)
-[[ -v remove ]] && { echo "[OPTION]:Removing $remove video(s)..." >&2 }
-splitstr=(${splitstr:$remove})
-local outstr
-local selection
+read -ra splitstr <<< $(
+	IFS=',' read -ra out <<< "$format"
+	echo "${out[@]}"
+)
+# splitstr=($(IFS=',' read -reA <<< "$format"))
+[[ -v remove ]] && { echo "[OPTION]:Removing $remove video(s)..." >&2; }
+splitstr=(${splitstr[@]:$remove})
+outstr=
+selection=
 
 if [ ${#splitstr[@]} -gt 50 ]; then
-	echo "${#splitstr[@]} entries, splitting...\n" >&2
+	echo -e "${#splitstr[@]} entries, splitting...\n" >&2
 	while true; do
-		outstr=`echo ${splitstr:$(($count*50)):50} | sed 's/ /,/g'`
+		outstr=$(echo "${splitstr[@]:$((count*50)):50}" | sed 's/ /,/g')
 		if [[ $outstr ]]; then
-			echo "[$(($count+1))]" >&2
+			echo "[$((count+1))]" >&2
 			echo "$prefix$outstr"
-			[[ $selection ]] && { selection+="\n" }
+			[[ $selection ]] && { selection+="\n"; }
 			selection+="$prefix$outstr"
 		else
 			break
 		fi
 
-		count=$(($count+1))
+		count=$((count+1))
 	done
 	
-	[[ $copy ]] && { echo "\n[OPTION]:Copying..." >&2; echo "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl }
-	[[ -v log ]] && { echo "[OPTION]:Logging to $log"; echo "$selection" | sed '2,$s/^/\n/' > $log }
+	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
+	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log"; echo -e "$selection" | sed '2,$s/^/\n/' > "$log"; }
 else
-	outstr=`echo $splitstr | sed 's/ /,/g'`
-	echo "${#splitstr[@]} entries total.\n" >&2
+	outstr=$(echo -e "${splitstr[@]}" | sed 's/ /,/g')
+	echo -e "${#splitstr[@]} entries total.\n" >&2
 	echo "$prefix$outstr"
-	[[ $copy ]] && { echo "\n[OPTION]:Copying..." >&2; echo "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl }
-	[[ -v log ]] && { echo "[OPTION]:Logging to $log"; echo "$prefix$outstr" > $log }
+	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
+	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log"; echo -e "$prefix$outstr" > "$log"; }
 fi
-return 0
+exit 0
