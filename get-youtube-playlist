@@ -83,12 +83,12 @@ if [ ${#splitstr[@]} -gt 50 ]; then
 	done
 	
 	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log"; echo -e "$selection" | sed '2,$s/^/\n/' > "$log"; }
+	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log" >&2; echo -e "$selection" | sed '2,$s/^/\n/' > "$log"; }
 else
 	outstr=$(echo -e "${splitstr[@]}" | sed 's/ /,/g')
 	echo -e "${#splitstr[@]} entries total.\n" >&2
 	echo "$prefix$outstr"
 	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log"; echo -e "$prefix$outstr" > "$log"; }
+	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log" >&2; echo -e "$prefix$outstr" > "$log"; }
 fi
 exit 0
