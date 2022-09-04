@@ -1,0 +1,88 @@
+#!/usr/bin/zsh
+prefix="https://www.youtube.com/watch_videos?video_ids="
+format=""
+input=""
+count=0
+
+if [ -p /dev/stdin ]; then
+	input=($(cat -))
+fi
+while
+[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]] ||
+[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--copy" ]] ||
+[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" ]] ||
+[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; do
+
+	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]]; then
+		remove=`echo "$2" | sed 's/^\s*$/0/' | bc`
+		shift 2
+	fi
+
+	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--copy" ]]; then
+		copy=true
+		shift 1
+	fi
+
+	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" ]]; then
+		read=true
+		shift 1
+	fi
+
+	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; then
+		log=`realpath $2`
+		[[ -d $log ]] && { log=$log/`basename $0`.txt }
+		shift 2
+	fi
+
+done
+if [[ $read ]]; then
+	echo -n "> " >&2
+	while read item && [ -n "$item" ]; do
+		echo -n "> " >&2
+		input_term+="\n$item"
+	done
+	input_term="${${input_term//\\n/ }:1}"
+fi
+
+input=($input $input_term $@)
+[[ -v log ]] && { input=($input $(cat $log)) }
+for argu in $input; do
+	fargu=($(echo "${argu//\\}"))
+	for entry in $fargu; do
+		format=$(echo "$format`[[ $format == "" ]] && echo -n || echo ,`"$(echo "$entry" | sed -E "s/^.+(v=|.be\/|video_ids=)([^&]*).*/\2/g"))
+	done
+	
+done
+
+local splitstr=(`IFS=',' read -reA <<< $format`)
+[[ -v remove ]] && { echo "[OPTION]:Removing $remove video(s)..." >&2 }
+splitstr=(${splitstr:$remove})
+local outstr
+local selection
+
+if [ ${#splitstr[@]} -gt 50 ]; then
+	echo "${#splitstr[@]} entries, splitting...\n" >&2
+	while true; do
+		outstr=`echo ${splitstr:$(($count*50)):50} | sed 's/ /,/g'`
+		if [[ $outstr ]]; then
+			echo "[$(($count+1))]" >&2
+			echo "$prefix$outstr"
+			[[ $selection ]] && { selection+="\n" }
+			selection+="$prefix$outstr"
+		else
+			break
+		fi
+
+		count=$(($count+1))
+	done
+	
+	[[ $copy ]] && { echo "\n[OPTION]:Copying..." >&2; echo "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl }
+	[[ -v log ]] && { echo "[OPTION]:Logging to $log"; echo "$selection" | sed '2,$s/^/\n/' > $log }
+else
+	outstr=`echo $splitstr | sed 's/ /,/g'`
+	echo "${#splitstr[@]} entries total.\n" >&2
+	echo "$prefix$outstr"
+	[[ $copy ]] && { echo "\n[OPTION]:Copying..." >&2; echo "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl }
+	[[ -v log ]] && { echo "[OPTION]:Logging to $log"; echo "$prefix$outstr" > $log }
+fi
+return 0
