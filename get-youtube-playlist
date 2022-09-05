@@ -11,7 +11,8 @@ fi
 while
 [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]] ||
 [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--copy" ]] ||
-[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" ]] ||
+[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" && ! $watch ]] ||
+[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--watch" && ! $read ]] ||
 [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; do
 
 	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]]; then
@@ -24,7 +25,7 @@ while
 		shift 1
 	fi
 
-	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" ]]; then
+	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" && ! $watch ]]; then
 		read=true
 		shift 1
 	fi
@@ -35,7 +36,14 @@ while
 		shift 2
 	fi
 
+	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--watch" && ! $read ]]; then
+		watch=true
+		
+		shift 1
+	fi
+
 done
+
 if [[ $read ]]; then
 	echo -n "> " >&2
 	while read item && [ -n "$item" ]; do
@@ -44,6 +52,24 @@ if [[ $read ]]; then
 	done
 	temp=${input_term//\\n/ }
 	input_term="${temp:1}"
+fi
+
+if [[ $watch ]]; then
+	trap 'continue=false' INT
+	continue=true
+	echo -ne "[OPTION] Press Ctrl+C to stop watching.\n" >&2
+	while [[ $continue == "true" ]]; do
+		watch -gtn.1 'xclip -o -selection clipboard' >/dev/null
+		if [[ $continue == "true" ]]; then
+			item="$(xclip -o -selection clipboard)"
+			echo -e "> $item" >&2
+			input_term+="\n$item"
+		fi
+	done
+	echo >&2
+	temp=${input_term//\\n/ }
+	input_term="${temp:1}"
+	trap - INT
 fi
 
 input=(${input[@]} $input_term $@)
