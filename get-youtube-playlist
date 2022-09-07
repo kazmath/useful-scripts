@@ -73,7 +73,7 @@ if [[ $watch ]]; then
 fi
 
 input=(${input[@]} $input_term $@)
-[[ -v log ]] && { input=("${input[@]}" $(cat "$log")); }
+[[ -v log && -a "$log" ]] && { input=("${input[@]}" $(cat "$log")); }
 for argu in "${input[@]}"; do
 	fargu=($(echo -e "${argu//\\}"))
 	for entry in "${fargu[@]}"; do
