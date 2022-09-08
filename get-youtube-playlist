@@ -1,5 +1,4 @@
 #!/usr/bin/bash
-# set -x
 prefix="https://www.youtube.com/watch_videos?video_ids="
 format=""
 input=""
@@ -27,21 +26,22 @@ while [[ "${1,,}" =~ --.* ]]; do
 		continue
 	fi
 
-	if [[ "${1,,}" =~ --(f|first-)?log && "$2" != "" ]]; then
-		flog=$(realpath "$2")
-		[[ -d $flog ]] && { flog=$flog/$(basename "$0").txt; }
+	if [[ "${1,,}" =~ --(r)?log && "$2" != "" ]]; then
+		if [[ ${BASH_REMATCH[1]} ]]; then
+			unset log
+			rlog=$(realpath "$2")
+			[[ -d $rlog ]] && { rlog=$rlog/$(basename "$0").txt; }
+		else
+			unset rlog
+			log=$(realpath "$2")
+			[[ -d $log ]] && { log=$log/$(basename "$0").txt; }
+		fi
 		shift 2
 		continue
 	fi
 
-	if [[ "${1,,}" =~ --read && ! $watch ]]; then
-		read=true
-		shift 1
-		continue
-	fi
-
-	if [[ "${1,,}" =~ --watch && ! $read ]]; then
-		watch=true
+	if [[ "${1,,}" =~ --(read|watch) ]]; then
+		terminal=${BASH_REMATCH[1]}
 		shift 1
 		continue
 	fi
@@ -49,10 +49,10 @@ while [[ "${1,,}" =~ --.* ]]; do
 	break
 done
 
-if [[ $read ]]; then
+if [[ "$terminal" == "read" ]]; then
 	temp=
 	echo -n "> " >&2
-	while read item && [ -n "$item" ]; do
+	while read -e item && [ -n "$item" ]; do
 		echo -n "> " >&2
 		temp+="\n$item"
 	done
@@ -60,7 +60,7 @@ if [[ $read ]]; then
 	input_term="${temp:1}"
 fi
 
-if [[ $watch ]]; then
+if [[ "$terminal" == "watch" ]]; then
 	temp=
 	continue=true
 	trap 'continue=false' INT
@@ -80,32 +80,33 @@ if [[ $watch ]]; then
 fi
 
 input=(${input[@]} $input_term $@)
-[[ -v flog && -a "$flog" ]] && { input=("${input[@]}" $(cat "$flog")); }
+[[ -e "$rlog" || -e "$log" ]] && { input=($(cat "$log" 2>/dev/null) "${input[@]}" $(cat "$rlog" 2>/dev/null)); }
 for argu in "${input[@]}"; do
 	fargu=($(echo -e "${argu//\\}"))
 	for entry in "${fargu[@]}"; do
 		format=$(echo "$format$([[ $format == "" ]] && echo -n || echo ,)""$(echo "$entry" | sed -E "s/^.+(v=|.be\/|video_ids=)([^&]*).*/\2/g")")
 	done
-	
 done
 
 read -ra splitstr <<< $(
 	IFS=',' read -ra out <<< "$format"
 	echo "${out[@]}"
 )
-# splitstr=($(IFS=',' read -reA <<< "$format"))
-[[ -v remove ]] && { echo "[OPTION]:Removing $remove video(s)..." >&2; }
-splitstr=(${splitstr[@]:$remove})
+if [[ -v remove ]]; then
+	[[ $remove -gt ${#splitstr[@]} ]] && { echo "[ERROR]:Cannot remove more than playlist length (${#splitstr[@]} videos)" >&2; exit 1; }
+	echo "[OPTION]:Removing $remove video(s)..." >&2;
+	splitstr=(${splitstr[@]:$remove})
+fi
 outstr=
 selection=
 
-if [ ${#splitstr[@]} -gt 50 ]; then
+if [[ "${#splitstr[@]}" -gt 50 ]]; then
 	echo -e "${#splitstr[@]} entries, splitting...\n" >&2
 	while true; do
 		outstr=$(echo "${splitstr[@]:$((count*50)):50}" | sed 's/ /,/g')
 		if [[ $outstr ]]; then
-			echo "[$((count+1))]" >&2
-			echo "$prefix$outstr"
+			# echo "[$((count+1))]" >&2
+			# echo "$prefix$outstr"
 			[[ $selection ]] && { selection+="\n"; }
 			selection+="$prefix$outstr"
 		else
@@ -114,14 +115,23 @@ if [ ${#splitstr[@]} -gt 50 ]; then
 
 		count=$((count+1))
 	done
-	
+
+	line=1
+	while [[ $line -le $(echo -e "$selection" | wc -l) ]]; do
+		echo "[$line]" >&2
+		echo -e "$selection" | sed -n ${line}'p'
+		line=$((line+1))
+	done
+
 	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v flog ]] && { echo -e "[OPTION]:Logging to $flog" >&2; echo -e "$selection" | sed '2,$s/^/\n/' > "$flog"; }
-else
+	[[ -v log || -v rlog ]] && { echo -e "[OPTION]:Logging to ${log-$rlog}" >&2; echo -e "$selection" | sed '2,$s/^/\n/' > "${log-$rlog}"; }
+elif [[ ${#splitstr[@]} -gt 0 ]]; then
 	outstr=$(echo -e "${splitstr[@]}" | sed 's/ /,/g')
 	echo -e "${#splitstr[@]} entries total.\n" >&2
 	echo "$prefix$outstr"
 	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v flog ]] && { echo -e "[OPTION]:Logging to $flog" >&2; echo -e "$prefix$outstr" > "$flog"; }
+	[[ -v log || -v rlog ]] && { echo -e "[OPTION]:Logging to ${log-$rlog}" >&2; echo -e "$prefix$outstr" > "${log-$rlog}"; }
+else
+	echo "[INFO]:Playlist is empty" >&2
 fi
 exit 0
