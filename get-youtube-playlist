@@ -1,79 +1,86 @@
 #!/usr/bin/bash
+# set -x
 prefix="https://www.youtube.com/watch_videos?video_ids="
 format=""
 input=""
 temp=
 count=0
 
-if [ -p /dev/stdin ]; then
+if [[ -p /dev/stdin ]]; then
 	input=($(cat -))
 fi
-while
-[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]] ||
-[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--copy" ]] ||
-[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" && ! $watch ]] ||
-[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--watch" && ! $read ]] ||
-[[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; do
+while [[ "${1,,}" =~ --.* ]]; do
 
-	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--remove" && $2 != "" ]]; then
+	if [[ "$1" == "--" ]]; then
+		break
+	fi
+
+	if [[ "${1,,}" =~ --remove && "$2" != "" ]]; then
 		remove=$(echo "$2" | sed 's/^\s*$/0/' | bc)
 		shift 2
+		continue
 	fi
 
-	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--copy" ]]; then
+	if [[ "${1,,}" =~ --copy ]]; then
 		copy=true
 		shift 1
+		continue
 	fi
 
-	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--read" && ! $watch ]]; then
+	if [[ "${1,,}" =~ --(f|first-)?log && "$2" != "" ]]; then
+		flog=$(realpath "$2")
+		[[ -d $flog ]] && { flog=$flog/$(basename "$0").txt; }
+		shift 2
+		continue
+	fi
+
+	if [[ "${1,,}" =~ --read && ! $watch ]]; then
 		read=true
 		shift 1
+		continue
 	fi
 
-	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--log" && $2 != "" ]]; then
-		log=$(realpath "$2")
-		[[ -d $log ]] && { log=$log/$(basename "$0").txt; }
-		shift 2
-	fi
-
-	if [[ "$(echo "$1" | tr '[:upper:]' '[:lower:]')" == "--watch" && ! $read ]]; then
+	if [[ "${1,,}" =~ --watch && ! $read ]]; then
 		watch=true
-		
 		shift 1
+		continue
 	fi
 
+	break
 done
 
 if [[ $read ]]; then
+	temp=
 	echo -n "> " >&2
 	while read item && [ -n "$item" ]; do
 		echo -n "> " >&2
-		input_term+="\n$item"
+		temp+="\n$item"
 	done
-	temp=${input_term//\\n/ }
+	temp=${temp//\\n/ }
 	input_term="${temp:1}"
 fi
 
 if [[ $watch ]]; then
-	trap 'continue=false' INT
+	temp=
 	continue=true
+	trap 'continue=false' INT
 	echo -ne "[OPTION] Press Ctrl+C to stop watching.\n" >&2
 	while [[ $continue == "true" ]]; do
 		watch -gtn.1 'xclip -o -selection clipboard' >/dev/null
 		if [[ $continue == "true" ]]; then
 			item="$(xclip -o -selection clipboard)"
 			echo -e "> $item" >&2
-			input_term+="\n$item"
+			temp+="\n$item"
 		fi
 	done
 	echo >&2
-	temp=${input_term//\\n/ }
+	temp=${temp//\\n/ }
 	input_term="${temp:1}"
 	trap - INT
 fi
 
 input=(${input[@]} $input_term $@)
-[[ -v log && -a "$log" ]] && { input=("${input[@]}" $(cat "$log")); }
+[[ -v flog && -a "$flog" ]] && { input=("${input[@]}" $(cat "$flog")); }
 for argu in "${input[@]}"; do
 	fargu=($(echo -e "${argu//\\}"))
 	for entry in "${fargu[@]}"; do
@@ -109,12 +116,12 @@ if [ ${#splitstr[@]} -gt 50 ]; then
 	done
 	
 	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log" >&2; echo -e "$selection" | sed '2,$s/^/\n/' > "$log"; }
+	[[ -v flog ]] && { echo -e "[OPTION]:Logging to $flog" >&2; echo -e "$selection" | sed '2,$s/^/\n/' > "$flog"; }
 else
 	outstr=$(echo -e "${splitstr[@]}" | sed 's/ /,/g')
 	echo -e "${#splitstr[@]} entries total.\n" >&2
 	echo "$prefix$outstr"
 	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v log ]] && { echo -e "[OPTION]:Logging to $log" >&2; echo -e "$prefix$outstr" > "$log"; }
+	[[ -v flog ]] && { echo -e "[OPTION]:Logging to $flog" >&2; echo -e "$prefix$outstr" > "$flog"; }
 fi
 exit 0
