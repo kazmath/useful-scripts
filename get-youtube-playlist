@@ -105,8 +105,6 @@ if [[ "${#splitstr[@]}" -gt 50 ]]; then
 	while true; do
 		outstr=$(echo "${splitstr[@]:$((count*50)):50}" | sed 's/ /,/g')
 		if [[ $outstr ]]; then
-			# echo "[$((count+1))]" >&2
-			# echo "$prefix$outstr"
 			[[ $selection ]] && { selection+="\n"; }
 			selection+="$prefix$outstr"
 		else
@@ -133,5 +131,7 @@ elif [[ ${#splitstr[@]} -gt 0 ]]; then
 	[[ -v log || -v rlog ]] && { echo -e "[OPTION]:Logging to ${log-$rlog}" >&2; echo -e "$prefix$outstr" > "${log-$rlog}"; }
 else
 	echo "[INFO]:Playlist is empty" >&2
+	
+	[[ -v log || -v rlog ]] && [[ $remove -gt 0 ]] && { echo -n "[OPTION]:Delete \"${log-$rlog}\" [y/N]? "; rm -i "${log-$rlog}" 2>/dev/null; }
 fi
 exit 0
