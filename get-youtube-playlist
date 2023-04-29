@@ -6,132 +6,180 @@ temp=
 count=0
 
 if [[ -p /dev/stdin ]]; then
-	input=($(cat -))
+    input=($(cat -))
 fi
-while [[ "${1,,}" =~ --.* ]]; do
+while [[ "${1,,}" =~ -.* ]]; do
 
-	if [[ "$1" == "--" ]]; then
-		break
-	fi
+    if [[ "$1" == "--" ]]; then
+        shift 1
+        break
+    fi
 
-	if [[ "${1,,}" =~ --remove && "$2" != "" ]]; then
-		remove=$(echo "$2" | sed 's/^\s*$/0/' | bc)
-		shift 2
-		continue
-	fi
+    if [[ "$1" =~ ^-(-help|h)$ ]]; then
+        sed -En -e 's/^ {12}//;p' << EOF
+            Usage: $(basename "$0") [options...] {link(s) | ID(s) | playlist(s) (only static for now)}
+            Options:
+                --
+                    Stops interpreting options.
+                --remove {x}, -r {x}
+                    Remove x videos from generated playlist.
+                --copy, -c
+                    Copy generated playlist to clipboard
+                --log {filename}
+                    Create/Add generated playlist to filename. New batch of videos go last.
+                --rlog
+                    Same as above but new batch of videos go first.
+                --read
+                    Accepts new videos directly from terminal. Cannot be used with --watch
+                --watch
+                    Watches for changes in clipboard and adds videos from it. Stop watching
+                    with Ctrl+C. Cannot be used with --read.
+                --help, -h
+                    Shows this message and exits.
+EOF
+        exit
+    fi
 
-	if [[ "${1,,}" =~ --copy ]]; then
-		copy=true
-		shift 1
-		continue
-	fi
+    if [[ "${1,,}" =~ ^-(-remove|r)$ && "$2" != "" ]]; then
+        REMOVE=$(echo "$2" | sed 's/^\s*$/0/' | bc)
+        shift 2
+        continue
+    fi
 
-	if [[ "${1,,}" =~ --(r)?log && "$2" != "" ]]; then
-		if [[ ${BASH_REMATCH[1]} ]]; then
-			unset log
-			rlog=$(realpath "$2")
-			[[ -d $rlog ]] && { rlog=$rlog/$(basename "$0").txt; }
-		else
-			unset rlog
-			log=$(realpath "$2")
-			[[ -d $log ]] && { log=$log/$(basename "$0").txt; }
-		fi
-		shift 2
-		continue
-	fi
+    if [[ "${1,,}" =~ ^-(-copy|c)$ ]]; then
+        [[ -v COPY ]] || { COPY='xclip -selection clip -rmlastnl'; }
+        shift 1
+        continue
+    fi
 
-	if [[ "${1,,}" =~ --(read|watch) ]]; then
-		terminal=${BASH_REMATCH[1]}
-		shift 1
-		continue
-	fi
+    if [[ "${1,,}" =~ ^--(r)?log$ && "$2" != "" ]]; then
+        if [[ ${BASH_REMATCH[1]} ]]; then
+            unset LOG
+            RLOG=$(realpath "$2")
+            [[ -d $RLOG ]] && { RLOG=$RLOG/$(basename "$0").txt; }
+        else
+            unset RLOG
+            LOG=$(realpath "$2")
+            [[ -d $LOG ]] && { LOG=$LOG/$(basename "$0").txt; }
+        fi
+        shift 2
+        continue
+    fi
 
-	break
+    if [[ "${1,,}" =~ ^--(read|watch)$ ]]; then
+        terminal=${BASH_REMATCH[1]}
+        shift 1
+        continue
+    fi
+
+    break
 done
 
 if [[ "$terminal" == "read" ]]; then
-	temp=
-	echo -n "> " >&2
-	while read -e item && [ -n "$item" ]; do
-		echo -n "> " >&2
-		temp+="\n$item"
-	done
-	temp=${temp//\\n/ }
-	input_term="${temp:1}"
+    temp=
+    # echo -n "> " >&2
+    while read -p '> ' -e item && [ -n "$item" ]; do
+        # echo -n "> " >&2
+        temp+="\n$item"
+    done
+    temp=${temp//\\n/ }
+    input_term="${temp:1}"
+    echo >&2
 fi
 
 if [[ "$terminal" == "watch" ]]; then
-	temp=
-	continue=true
-	trap 'continue=false' INT
-	echo -ne "[OPTION] Press Ctrl+C to stop watching.\n" >&2
-	while [[ $continue == "true" ]]; do
-		watch -gtn.1 'xclip -o -selection clipboard' >/dev/null
-		if [[ $continue == "true" ]]; then
-			item="$(xclip -o -selection clipboard)"
-			echo -e "> $item" >&2
-			temp+="\n$item"
-		fi
-	done
-	echo >&2
-	temp=${temp//\\n/ }
-	input_term="${temp:1}"
-	trap - INT
+    temp=
+    continue=true
+    trap 'continue=false' INT
+    echo -ne "[OPTION] Press Ctrl+C to stop watching.\n" >&2
+    while [[ $continue == "true" ]]; do
+        watch -gtn.1 'xclip -o -selection clipboard' >/dev/null
+        if [[ $continue == "true" ]]; then
+            item="$(xclip -o -selection clipboard)"
+            echo -e "> $item" >&2
+            temp+="\n$item"
+        fi
+    done
+    echo >&2
+    temp=${temp//\\n/ }
+    input_term="${temp:1}"
+    trap - INT
 fi
 
 input=(${input[@]} $input_term $@)
-[[ -e "$rlog" || -e "$log" ]] && { input=($(cat "$log" 2>/dev/null) "${input[@]}" $(cat "$rlog" 2>/dev/null)); }
+[[ -e "$RLOG" || -e "$LOG" ]] && {
+    input=($(cat "$LOG" 2>/dev/null) "${input[@]}" $(cat "$RLOG" 2>/dev/null));
+}
 for argu in "${input[@]}"; do
-	fargu=($(echo -e "${argu//\\}"))
-	for entry in "${fargu[@]}"; do
-		format=$(echo "$format$([[ $format == "" ]] && echo -n || echo ,)""$(echo "$entry" | sed -E "s/^.+(v=|.be\/|video_ids=)([^&]*).*/\2/g")")
-	done
+    fargu=($(echo -e "${argu//\\}"))
+    for entry in "${fargu[@]}"; do
+        format=$(echo "$format$([[ $format == "" ]] && echo -n || echo ,)""$(echo "$entry" |\
+            sed -E "s/^.+(v=|.be\/|video_ids=)([^&]*).*/\2/g")")
+    done
 done
 
 read -ra splitstr <<< $(
-	IFS=',' read -ra out <<< "$format"
-	echo "${out[@]}"
+    IFS=',' read -ra out <<< "$format"
+    echo "${out[@]}"
 )
-if [[ -v remove ]]; then
-	[[ $remove -gt ${#splitstr[@]} ]] && { echo "[ERROR]:Cannot remove more than playlist length (${#splitstr[@]} videos)" >&2; exit 1; }
-	echo "[OPTION]:Removing $remove video(s)..." >&2;
-	splitstr=(${splitstr[@]:$remove})
+if [[ -v REMOVE ]]; then
+    [[ $REMOVE -gt ${#splitstr[@]} ]] && {
+        echo "[ERROR]:Cannot REMOVE more than playlist length (${#splitstr[@]} videos)" >&2;
+        exit 1;
+    }
+    echo "[OPTION]:Removing $REMOVE video(s)..." >&2;
+    splitstr=(${splitstr[@]:$REMOVE})
 fi
 outstr=
 selection=
 
 if [[ "${#splitstr[@]}" -gt 50 ]]; then
-	echo -e "${#splitstr[@]} entries, splitting...\n" >&2
-	while true; do
-		outstr=$(echo "${splitstr[@]:$((count*50)):50}" | sed 's/ /,/g')
-		if [[ $outstr ]]; then
-			[[ $selection ]] && { selection+="\n"; }
-			selection+="$prefix$outstr"
-		else
-			break
-		fi
+    echo -e "${#splitstr[@]} entries, splitting...\n" >&2
+    while true; do
+        outstr=$(echo "${splitstr[@]:$((count*50)):50}" | sed 's/ /,/g')
+        if [[ $outstr ]]; then
+            [[ $selection ]] && { selection+="\n"; }
+            selection+="$prefix$outstr"
+        else
+            break
+        fi
 
-		count=$((count+1))
-	done
+        count=$((count+1))
+    done
 
-	line=1
-	while [[ $line -le $(echo -e "$selection" | wc -l) ]]; do
-		echo "[$line]" >&2
-		echo -e "$selection" | sed -n ${line}'p'
-		line=$((line+1))
-	done
+    line=1
+    while [[ $line -le $(echo -e "$selection" | wc -l) ]]; do
+        echo "[$line]" >&2
+        echo -e "$selection" | sed -n ${line}'p'
+        line=$((line+1))
+    done
 
-	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$selection" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v log || -v rlog ]] && { echo -e "[OPTION]:Logging to ${log-$rlog}" >&2; echo -e "$selection" | sed '2,$s/^/\n/' > "${log-$rlog}"; }
+    [[ -v COPY ]] && {
+        echo -e "\n[OPTION]:Copying..." >&2;
+        echo -e "$selection" | sed '2,$s/^/\n/' | bash -c "$COPY";
+    }
+    [[ -v LOG || -v RLOG ]] && {
+        echo -e "[OPTION]:Logging to ${LOG-$RLOG}" >&2;
+        echo -e "$selection" | sed '2,$s/^/\n/' > "${LOG-$RLOG}";
+    }
 elif [[ ${#splitstr[@]} -gt 0 ]]; then
-	outstr=$(echo -e "${splitstr[@]}" | sed 's/ /,/g')
-	echo -e "${#splitstr[@]} entries total.\n" >&2
-	echo "$prefix$outstr"
-	[[ $copy ]] && { echo -e "\n[OPTION]:Copying..." >&2; echo -e "$prefix$outstr" | sed '2,$s/^/\n/' | xclip -selection clip -rmlastnl; }
-	[[ -v log || -v rlog ]] && { echo -e "[OPTION]:Logging to ${log-$rlog}" >&2; echo -e "$prefix$outstr" > "${log-$rlog}"; }
+    outstr=$(echo -e "${splitstr[@]}" | sed 's/ /,/g')
+    echo -e "${#splitstr[@]} entries total.\n" >&2
+    echo "$prefix$outstr"
+    [[ -v COPY ]] && {
+        echo -e "\n[OPTION]:Copying..." >&2;
+        echo -e "$prefix$outstr" | sed '2,$s/^/\n/' | bash -c "$COPY";
+    }
+    [[ -v LOG || -v RLOG ]] && {
+        echo -e "[OPTION]:Logging to ${LOG-$RLOG}" >&2;
+        echo -e "$prefix$outstr" > "${LOG-$RLOG}";
+    }
 else
-	echo "[INFO]:Playlist is empty" >&2
-	
-	[[ -v log || -v rlog ]] && [[ $remove -gt 0 ]] && { echo -n "[OPTION]:Delete \"${log-$rlog}\" [y/N]? "; rm -i "${log-$rlog}" 2>/dev/null; }
+    echo "[INFO]:Playlist is empty" >&2
+
+    [[ -v LOG || -v RLOG ]] && [[ $REMOVE -gt 0 ]] && {
+        echo -n "[OPTION]:Delete \"${LOG-$RLOG}\" [y/N]? ";
+        rm -i "${LOG-$RLOG}" 2>/dev/null;
+    }
 fi
 exit 0
